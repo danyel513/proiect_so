@@ -1,7 +1,7 @@
 // COTOC DANIEL BENIAMIN
 // PROJECT SO
 
-// task 1
+//task 2
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -20,7 +20,7 @@
 
 typedef struct File
 {
-    int file_type; // = 0 for directory and = 1 for files
+    int file_type;
     char file_name[FILE_NAME_SIZE];
     long file_id;
     long file_size;
@@ -66,6 +66,17 @@ void checkFile(int f)  // verify that the file was properly opened and can be us
 
 }
 
+int validateDirectory(char *name) // validates if the name/path given as argument is a directory or not
+{
+    struct stat file_stat;
+    if(stat(name, &file_stat) == -1)
+    {
+        strerror(errno);
+        exit(-1);
+    }
+    return S_ISDIR(file_stat.st_mode);
+}
+
 int compareByID(const void* a, const void* b) // auxiliary function used for qsort() - sort the data by the id of the files
 {
     const FileMetadata_t *el1 = (const FileMetadata_t *)a;
@@ -83,6 +94,15 @@ int compareByID(const void* a, const void* b) // auxiliary function used for qso
     {
         return 0;
     }
+}
+
+void printFilesArray(FileMetadata_t *files, int count) // prints on the std output the content of the FilesArray
+{
+    for(int i=0; i<count; i++)
+    {
+        printf("%s - %s - %ld - %ld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size);
+    }
+    printf("\n");
 }
 
 FileMetadata_t addData(char *name) // uses file stat to set all the data that we need to know about a file or directory and returns the obtained data
@@ -144,7 +164,6 @@ void initializeDirectory(int *returnCount, char *dirName, FileMetadata_t files[A
     }
     closedir(directory);
     *returnCount = count;
-
 }
 
 
@@ -170,40 +189,87 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
         perror("An error has occurred while reading file");
         exit(-1);
     }
-    if(file_stat.st_size == 0) // if the file is empty => initialize the data about the directory
+
+    // search for the directory name in the resource file
+
+    lseek(fin, 0, SEEK_SET); // set the file cursor at the beginning of the file
+    long i = 0;
+    int found = 0;
+
+    while(lseek(fin, i, SEEK_CUR) < file_stat.st_size)  // seek for the directory name until the end of the file is reached
     {
-        lseek(fin, 0, SEEK_SET);
-        initializeDirectory(count, name, files);
-        if(write(fin, files, sizeof(FileMetadata_t) * (*count)) != sizeof(FileMetadata_t) * (*count))
+        char string[FILE_NAME_SIZE];
+        read(fin, string, sizeof(char) * FILE_NAME_SIZE);
+        long size;
+        read(fin, &size, sizeof(long));
+
+        if(strcmp(name, string) == 0) // if the directory was found -> read data
         {
-            perror("Writing file error!");
+            (*count)=(int) (size / sizeof(FileMetadata_t));
+            read(fin, files, sizeof(FileMetadata_t) * (*count));
+            found = 1;
+            break;
+        }
+        else
+        {
+            i = size; // if the directory was not found -> add to the offset the size of the current's directory data
+        }
+
+    }
+
+    if(!found) // if the directory is not in the file => initialize the data about the directory
+    {
+        lseek(fin, 0, SEEK_END);
+        initializeDirectory(count, name, files);
+
+        if(write(fin, name, sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE)  // write the directory name
+        {
+            perror("Writing name in the file - error!");
+            exit(-1);
+        }
+
+        long size = (long) (sizeof(FileMetadata_t) * (*count));
+        if(write(fin, &size, sizeof(long)) != sizeof(long)) // write the data size
+        {
+            perror("Writing the size in the file - error!");
+            exit(-1);
+        }
+
+        if(write(fin, files, sizeof(FileMetadata_t) * (*count)) != sizeof(FileMetadata_t) * (*count)) // write all the data
+        {
+            perror("Writing data in the file - error!");
             exit(-1);
         }
     }
-    else // otherwise we read the initial data about the directory
-    {
-        lseek(fin, 0, SEEK_SET);
-        (*count)=(int) (file_stat.st_size/sizeof(FileMetadata_t));
-        read(fin, files, sizeof(FileMetadata_t) * (*count));
 
-    }
     close(fin);
 }
 
 
-void printFilesArray(FileMetadata_t *files, int count) // prints on the std output the content of the FilesArray
+void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], char *dirName, int flag) // write a snapshot of the file list in a text file
 {
-    for(int i=0; i<count; i++)
-    {
-        printf("%s - %s - %ld - %ld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size);
-    }
-    printf("\n");
-}
+    int fout;
 
-void printSnapshot(int count, FileMetadata_t files[ARR_SIZE]) // write a snapshot of the file list to a text file
-{
-    int fout = open("snapshot.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    checkFile(fout);
+    char outPath[PATH_SIZE] = "./";
+    strcat(outPath, outDirName);
+    strcat(outPath, "/snapshot.txt");
+
+    // Set the file access permissions to 0644 (read and write permissions for the owner, and read-only permissions for the group and other users)
+
+    if (!flag)
+    {
+        fout = open(outPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        checkFile(fout);
+    }
+    else
+    {
+        fout = open(outPath, O_WRONLY | O_APPEND | O_CREAT, 0644);
+        checkFile(fout);
+    }
+
+    char dirString[BUFFER_SIZE];
+    int dirStringSize = snprintf(dirString, sizeof(dirString), "..............................\n\n DIRECTORY: %s \n\n", dirName);
+    write(fout, dirString, dirStringSize);
 
     // Iterate through the file list and write the details to the snapshot file
     for (int i = 0; i < count; i++)
@@ -259,17 +325,27 @@ int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateF
 
 int main(int argc, char **argv)
 {
-    if(argc > 11) // verify the arguments format and number
+    if(argc > 13) // verify the arguments format and number
     {
         perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
         exit(-1);
     }
 
+    if(strcmp(argv[1], "-o") != 0)
+    {
+        perror("Missing the output directory argument!");
+        exit(-1);
+    }
+
     // for each directory given as argument -> realize a snapshot
 
-    for (int i = 1; i < argc; ++i)
+    int ok = 0;
+    for (int i = 3; i < argc; ++i)
     {
-
+        if(!validateDirectory(argv[i]))
+        {
+            continue;
+        }
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
         int count = 0;
@@ -284,9 +360,11 @@ int main(int argc, char **argv)
         initialFiles[4].file_id = 5;
         initialFiles[5].file_id = 6;
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        //printFilesArray(initialFiles, count);
+
 
         int count2 = 0;
-        initializeDirectory(&count2, argv[1], updateFiles); // save the new data
+        initializeDirectory(&count2, argv[i], updateFiles); // save the new data
 
         // dont forget to delete >>>>>>>>>>>>>>>>>
         updateFiles[0].file_id = 1;
@@ -295,14 +373,22 @@ int main(int argc, char **argv)
         updateFiles[3].file_id = 4;
         updateFiles[4].file_id = 5;
         updateFiles[5].file_id = 6;
-        //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        //printFilesArray(initialFiles, count);
 
         if (updateSnapshot(initialFiles, updateFiles, count, count2))
         {
-            printf("Changes were found in the directory %s \n", argv[1]);
-            printSnapshot(count2, updateFiles);
+            printf(" => Changes were found in the directory %s \n", argv[i]);
+            if(ok == 0)
+            {
+                printSnapshot(argv[2], count2, updateFiles, argv[i], ok);
+                ok = 1;
+            }
+            else
+            {
+                printSnapshot(argv[2], count2, updateFiles, argv[i], ok);
+            }
         }
     }
     return 0;
 }
-
