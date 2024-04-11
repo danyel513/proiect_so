@@ -259,49 +259,24 @@ int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateF
 
 int main(int argc, char **argv)
 {
-    if(argc > 11) // verify the arguments format and number
+    if(argc > 2) // verify the arguments format and number
     {
         perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
         exit(-1);
     }
 
-    // for each directory given as argument -> realize a snapshot
+    FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
-    for (int i = 1; i < argc; ++i)
+    int count = 0;
+    emptyResourceFile(&count, initialFiles, argv[i]); // set the initial stats
+
+    int count2 = 0;
+    initializeDirectory(&count2, argv[1], updateFiles); // save the new data
+
+    if (updateSnapshot(initialFiles, updateFiles, count, count2))
     {
-
-        FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
-
-        int count = 0;
-
-        emptyResourceFile(&count, initialFiles, argv[i]); // set the initial stats
-
-        // dont forget to delete >>>>>>>>>>>>>>>>>
-        initialFiles[0].file_id = 1;
-        initialFiles[1].file_id = 2;
-        initialFiles[2].file_id = 3;
-        initialFiles[3].file_id = 4;
-        initialFiles[4].file_id = 5;
-        initialFiles[5].file_id = 6;
-        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-        int count2 = 0;
-        initializeDirectory(&count2, argv[1], updateFiles); // save the new data
-
-        // dont forget to delete >>>>>>>>>>>>>>>>>
-        updateFiles[0].file_id = 1;
-        updateFiles[1].file_id = 2;
-        updateFiles[2].file_id = 3;
-        updateFiles[3].file_id = 4;
-        updateFiles[4].file_id = 5;
-        updateFiles[5].file_id = 6;
-        //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-        if (updateSnapshot(initialFiles, updateFiles, count, count2))
-        {
-            printf("Changes were found in the directory %s \n", argv[1]);
-            printSnapshot(count2, updateFiles);
-        }
+        printf("Changes were found in the directory %s \n", argv[1]);
+        printSnapshot(count2, updateFiles);
     }
     return 0;
 }
