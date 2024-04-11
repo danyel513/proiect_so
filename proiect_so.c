@@ -349,32 +349,10 @@ int main(int argc, char **argv)
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
         int count = 0;
-
         emptyResourceFile(&count, initialFiles, argv[i]); // set the initial stats
-
-        // dont forget to delete >>>>>>>>>>>>>>>>>
-        initialFiles[0].file_id = 1;
-        initialFiles[1].file_id = 2;
-        initialFiles[2].file_id = 3;
-        initialFiles[3].file_id = 4;
-        initialFiles[4].file_id = 5;
-        initialFiles[5].file_id = 6;
-        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        //printFilesArray(initialFiles, count);
-
 
         int count2 = 0;
         initializeDirectory(&count2, argv[i], updateFiles); // save the new data
-
-        // dont forget to delete >>>>>>>>>>>>>>>>>
-        updateFiles[0].file_id = 1;
-        updateFiles[1].file_id = 2;
-        updateFiles[2].file_id = 3;
-        updateFiles[3].file_id = 4;
-        updateFiles[4].file_id = 5;
-        updateFiles[5].file_id = 6;
-        //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        //printFilesArray(initialFiles, count);
 
         if (updateSnapshot(initialFiles, updateFiles, count, count2))
         {
