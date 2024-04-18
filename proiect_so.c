@@ -1,7 +1,7 @@
 // COTOC DANIEL BENIAMIN
 // PROJECT SO
 
-//task 2
+//task 3
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -11,7 +11,6 @@
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
-
 
 #define FILE_NAME_SIZE 100
 #define ARR_SIZE 200
@@ -24,6 +23,7 @@ typedef struct File
     char file_name[FILE_NAME_SIZE];
     long file_id;
     long file_size;
+    time_t file_last_modified;
 
 } FileMetadata_t;  // save in a structure all the data about a file or a directory
 
@@ -41,7 +41,7 @@ void checkDirectory(DIR *directory) // verify the directory -> if it was properl
             perror("Then name given as argument is not a directory!");
             exit(-1);
         }
-        perror("An error has occurred while opening the directory!");
+        perror(strerror(errno));
         exit(-1);
     }
 }
@@ -60,7 +60,7 @@ void checkFile(int f)  // verify that the file was properly opened and can be us
             perror("Path to file error!");
             exit(-1);
         }
-        perror("An error occurred while opening the file!");
+        perror(strerror(errno));
         exit(-1);
     }
 
@@ -71,7 +71,7 @@ int validateDirectory(char *name) // validates if the name/path given as argumen
     struct stat file_stat;
     if(stat(name, &file_stat) == -1)
     {
-        strerror(errno);
+        perror(strerror(errno));
         exit(-1);
     }
     return S_ISDIR(file_stat.st_mode);
@@ -100,7 +100,7 @@ void printFilesArray(FileMetadata_t *files, int count) // prints on the std outp
 {
     for(int i=0; i<count; i++)
     {
-        printf("%s - %s - %ld - %ld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size);
+        printf("%s - %s - %ld - %ld - %lld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size, files[i].file_last_modified);
     }
     printf("\n");
 }
@@ -121,18 +121,19 @@ FileMetadata_t addData(char *name) // uses file stat to set all the data that we
             perror("Can't access the directory/file, permission denied");
             exit(-1);
         }
-        perror("An error has occurred while reading directory/file");
+        perror(strerror(errno));
         exit(-1);
     }
 
     retFile.file_id = file_stat.st_ino;
     retFile.file_size = file_stat.st_size;                    // -> add data to the array
     retFile.file_type = (S_ISDIR(file_stat.st_mode) ? 0 : 1);
+    retFile.file_last_modified = file_stat.st_mtime;
 
     return retFile;
 }
 
-void initializeDirectory(int *returnCount, char *dirName, FileMetadata_t files[ARR_SIZE]) // initialize the directory to monitor changes - read the initial information
+void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName) // initialize the directory to monitor changes - read the initial information
 {
     DIR *directory = opendir(dirName);
     checkDirectory(directory); // check that we can read the directory
@@ -174,7 +175,7 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
 
     struct stat file_stat;
 
-    if(fstat(fin, &file_stat) == -1) // we check if the file status was properly created
+    if(fstat(fin, &file_stat) == -1) // check if the file status was properly created
     {
         if (errno == ENOENT || errno == EFAULT)
         {
@@ -186,7 +187,7 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
             perror("Can't access the file, permission denied");
             exit(-1);
         }
-        perror("An error has occurred while reading file");
+        perror(strerror(errno));
         exit(-1);
     }
 
@@ -246,26 +247,21 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
 }
 
 
-void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], char *dirName, int flag) // write a snapshot of the file list in a text file
+void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], char *dirName) // write a snapshot of the file list in a text file
 {
     int fout;
 
     char outPath[PATH_SIZE] = "./";
     strcat(outPath, outDirName);
-    strcat(outPath, "/snapshot.txt");
+    strcat(outPath, "/");
+    strcat(outPath, dirName);
+    strcat(outPath, "_snapshot.txt");
 
     // Set the file access permissions to 0644 (read and write permissions for the owner, and read-only permissions for the group and other users)
 
-    if (!flag)
-    {
-        fout = open(outPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-        checkFile(fout);
-    }
-    else
-    {
-        fout = open(outPath, O_WRONLY | O_APPEND | O_CREAT, 0644);
-        checkFile(fout);
-    }
+    fout = open(outPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    checkFile(fout);
+
 
     char dirString[BUFFER_SIZE];
     int dirStringSize = snprintf(dirString, sizeof(dirString), "..............................\n\n DIRECTORY: %s \n\n", dirName);
@@ -323,36 +319,23 @@ int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateF
     return 0;
 }
 
-int main(int argc, char **argv)
+pid_t startChildProcess(char *dirName, char *outputDir) // starts a process to make a snapshot about a directory
 {
-    if(argc > 13) // verify the arguments format and number
+    pid_t pid = fork();
+    if(pid < 0)
     {
-        perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
+        perror(strerror(errno));
         exit(-1);
     }
-
-    if(strcmp(argv[1], "-o") != 0)
+    else if(pid == 0)
     {
-        perror("Missing the output directory argument!");
-        exit(-1);
-    }
-
-    // for each directory given as argument -> realize a snapshot
-
-    int ok = 0;
-    for (int i = 3; i < argc; ++i)
-    {
-        if(!validateDirectory(argv[i]))
-        {
-            continue;
-        }
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
         int count = 0;
 
-        emptyResourceFile(&count, initialFiles, argv[i]); // set the initial stats
+        emptyResourceFile(&count, initialFiles, dirName); // set the initial stats
 
-        // dont forget to delete >>>>>>>>>>>>>>>>>
+        // don't forget to delete >>>>>>>>>>>>>>>>>
         initialFiles[0].file_id = 1;
         initialFiles[1].file_id = 2;
         initialFiles[2].file_id = 3;
@@ -364,9 +347,9 @@ int main(int argc, char **argv)
 
 
         int count2 = 0;
-        initializeDirectory(&count2, argv[i], updateFiles); // save the new data
+        initializeDirectory(&count2, updateFiles, dirName); // save the new data
 
-        // dont forget to delete >>>>>>>>>>>>>>>>>
+        // don't forget to delete >>>>>>>>>>>>>>>>>
         updateFiles[0].file_id = 1;
         updateFiles[1].file_id = 2;
         updateFiles[2].file_id = 3;
@@ -378,15 +361,80 @@ int main(int argc, char **argv)
 
         if (updateSnapshot(initialFiles, updateFiles, count, count2))
         {
-            printf(" => Changes were found in the directory %s \n", argv[i]);
-            if(ok == 0)
+            printf(" => Changes were found in the directory %s \n", dirName);
+            printSnapshot(outputDir, count2, updateFiles, dirName);
+        }
+
+        printf("Print snapshot of directory %s successfully", dirName);
+        exit(0);
+    }
+    else
+    {
+        return pid;
+    }
+}
+
+int found(pid_t val, const pid_t* array, int size) // binary search for the pid val in the array
+{
+    int left = 0, right = size - 1;
+    while (left <= right)
+    {
+        int mid = left + (right - left) / 2;
+
+        if (array[mid] == val)
+            return 1;
+
+        if (array[mid] < val)
+            left = mid + 1;
+        else
+            right = mid - 1;
+    }
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if(argc > 13 || argc < 4) // verify the arguments format and number
+    {
+        perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
+        exit(-1);
+    }
+
+    if(strcmp(argv[1], "-o") != 0)
+    {
+        perror("Missing the output directory argument: -o output_dir_name");
+        exit(-1);
+    }
+
+    pid_t retPid[11];  // save all the process ids that were started
+    int pidCount = 0;
+
+    for (int i = 3; i < argc; ++i) // for each directory given as argument -> start a new process and run the child code
+    {
+        if(!validateDirectory(argv[i]))
+        {
+            continue;
+        }
+        retPid[i] = startChildProcess(argv[i], argv[2]); // -> parallelism = starting all the processes and wait for the one that comes first
+        pidCount++;
+    }
+    for(int i=0; i<argc; i++)
+    {
+        if(!validateDirectory(argv[i]))
+        {
+            continue;
+        }
+
+        pid_t waitPid = wait(NULL);  // wait for the zombie processes to end and write the suitable message
+        if(waitPid == -1 && errno != ECHILD)
+        {
+            perror(strerror(errno));
+        }
+        else
+        {
+            if(found(waitPid, retPid, pidCount))
             {
-                printSnapshot(argv[2], count2, updateFiles, argv[i], ok);
-                ok = 1;
-            }
-            else
-            {
-                printSnapshot(argv[2], count2, updateFiles, argv[i], ok);
+                printf("Print snapshot of directory %s was successfully done - process ended.", argv[i]);
             }
         }
     }
