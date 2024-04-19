@@ -1,4 +1,4 @@
-TASK 2:
+# TASK 2:
 
 The program's functionality will be updated to accept an unspecified number of command-line arguments, but no more than 10, with the specification that no argument will be repeated. The program will process only directories, ignoring other types of arguments. The logic for capturing metadata will now apply to all valid received arguments, meaning the program will update snapshots for all directories specified by the user.
 
