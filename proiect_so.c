@@ -1,5 +1,5 @@
 // COTOC DANIEL BENIAMIN
-// PROJECT SO
+// PROJECT - SO
 
 //task 3
 
@@ -11,6 +11,9 @@
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
+#include <aio.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #define FILE_NAME_SIZE 100
 #define ARR_SIZE 200
@@ -25,7 +28,7 @@ typedef struct File
     long file_size;
     time_t file_last_modified;
 
-} FileMetadata_t;  // save in a structure all the data about a file or a directory
+} FileMetadata_t;  // save in a structure all the data about a file or a directory (metadata)
 
 void checkDirectory(DIR *directory) // verify the directory -> if it was properly open or can be used
 {
@@ -100,9 +103,27 @@ void printFilesArray(FileMetadata_t *files, int count) // prints on the std outp
 {
     for(int i=0; i<count; i++)
     {
-        printf("%s - %s - %ld - %ld - %lld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size, files[i].file_last_modified);
+        printf("%s - %s - %ld - %ld - %ld \n", files[i].file_name, files[i].file_type ? "file": "directory", files[i].file_id, files[i].file_size, files[i].file_last_modified);
     }
     printf("\n");
+}
+
+int searchPid(pid_t val, const pid_t* array, int size) // binary search for the pid val in the array
+{
+    int left = 0, right = size - 1;
+    while (left <= right)
+    {
+        int mid = left + (right - left) / 2;
+
+        if (array[mid] == val)
+            return mid;
+
+        if (array[mid] < val)
+            left = mid + 1;
+        else
+            right = mid - 1;
+    }
+    return -1;
 }
 
 FileMetadata_t addData(char *name) // uses file stat to set all the data that we need to know about a file or directory and returns the obtained data
@@ -160,7 +181,7 @@ void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char 
         // if the current file is a subdirectory - read the information about its files and directories
         if(files[count-1].file_type == 0)
         {
-            initializeDirectory(&count, path, files);// add the subdirectory files
+            initializeDirectory(&count, files, path);// add the subdirectory files
         }
     }
     closedir(directory);
@@ -221,7 +242,7 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
     if(!found) // if the directory is not in the file => initialize the data about the directory
     {
         lseek(fin, 0, SEEK_END);
-        initializeDirectory(count, name, files);
+        initializeDirectory(count, files, name);
 
         if(write(fin, name, sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE)  // write the directory name
         {
@@ -296,101 +317,71 @@ int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateF
     qsort(initialFiles, count1, sizeof(FileMetadata_t), compareByID);
     qsort(updateFiles, count2, sizeof(FileMetadata_t), compareByID);
 
+    int found = 0;
+
     for(int i=0; i<count1; i++)
     {
         if(initialFiles[i].file_id == updateFiles[i].file_id)
         {
             if(strcmp(initialFiles[i].file_name, updateFiles[i].file_name) != 0)
             {
-                printf("Name changed from %s to %s \n", initialFiles[i].file_name, updateFiles[i].file_name);
-                return 1; // name changed
+                printf(" Name changed from %s to %s. ", initialFiles[i].file_name, updateFiles[i].file_name);
+                found = 1;
             }
             if(initialFiles[i].file_size != updateFiles[i].file_size)
             {
-                printf("Size modified for %s from %ld to %ld \n", updateFiles[i].file_name, initialFiles[i].file_size, updateFiles[i].file_size);
-                return 1; // size of the file changed
+                printf(" Size modified for %s from %ld to %ld. ", updateFiles[i].file_name, initialFiles[i].file_size, updateFiles[i].file_size);
+                found = 1;
+            }
+            if(initialFiles[i].file_last_modified != updateFiles[i].file_last_modified)
+            {
+                printf(" File %s modified.", updateFiles[i].file_name);
+                found = 1;
             }
         }
         else
         {
-            return 1;
+            found = 1;
         }
     }
-    return 0;
+    return found;
 }
 
-pid_t startChildProcess(char *dirName, char *outputDir) // starts a process to make a snapshot about a directory
+pid_t startChildProcess(char *dirName, char *outputDir) // starts a process that makes a snapshot about a directory
 {
     pid_t pid = fork();
+
     if(pid < 0)
     {
         perror(strerror(errno));
         exit(-1);
     }
+
     else if(pid == 0)
     {
+        printf("----Child process started, number of pid: %d---- \n", getpid());
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
         int count = 0;
 
         emptyResourceFile(&count, initialFiles, dirName); // set the initial stats
 
-        // don't forget to delete >>>>>>>>>>>>>>>>>
-        initialFiles[0].file_id = 1;
-        initialFiles[1].file_id = 2;
-        initialFiles[2].file_id = 3;
-        initialFiles[3].file_id = 4;
-        initialFiles[4].file_id = 5;
-        initialFiles[5].file_id = 6;
-        // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        //printFilesArray(initialFiles, count);
-
-
         int count2 = 0;
         initializeDirectory(&count2, updateFiles, dirName); // save the new data
 
-        // don't forget to delete >>>>>>>>>>>>>>>>>
-        updateFiles[0].file_id = 1;
-        updateFiles[1].file_id = 2;
-        updateFiles[2].file_id = 3;
-        updateFiles[3].file_id = 4;
-        updateFiles[4].file_id = 5;
-        updateFiles[5].file_id = 6;
-        //>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        //printFilesArray(initialFiles, count);
-
         if (updateSnapshot(initialFiles, updateFiles, count, count2))
         {
-            printf(" => Changes were found in the directory %s \n", dirName);
+            printf(" => changes found in the directory %s \n", dirName);
             printSnapshot(outputDir, count2, updateFiles, dirName);
         }
-
-        printf("Print snapshot of directory %s successfully", dirName);
+        printf(" ---end of child process pid: %d--- \n", getpid());
         exit(0);
     }
-    else
-    {
-        return pid;
-    }
+
+    return pid;
+
 }
 
-int found(pid_t val, const pid_t* array, int size) // binary search for the pid val in the array
-{
-    int left = 0, right = size - 1;
-    while (left <= right)
-    {
-        int mid = left + (right - left) / 2;
-
-        if (array[mid] == val)
-            return 1;
-
-        if (array[mid] < val)
-            left = mid + 1;
-        else
-            right = mid - 1;
-    }
-    return 0;
-}
 
 int main(int argc, char **argv)
 {
@@ -400,13 +391,13 @@ int main(int argc, char **argv)
         exit(-1);
     }
 
-    if(strcmp(argv[1], "-o") != 0)
+    if(strcmp(argv[1], "-o") != 0 || !validateDirectory(argv[2]))
     {
         perror("Missing the output directory argument: -o output_dir_name");
         exit(-1);
     }
 
-    pid_t retPid[11];  // save all the process ids that were started
+    pid_t retPid[11];  // save all the process IDs that were started
     int pidCount = 0;
 
     for (int i = 3; i < argc; ++i) // for each directory given as argument -> start a new process and run the child code
@@ -415,10 +406,11 @@ int main(int argc, char **argv)
         {
             continue;
         }
-        retPid[i] = startChildProcess(argv[i], argv[2]); // -> parallelism = starting all the processes and wait for the one that comes first
+        retPid[pidCount] = startChildProcess(argv[i], argv[2]); // -> parallelism = starting all the processes and wait for the one that comes first
         pidCount++;
     }
-    for(int i=0; i<argc; i++)
+
+    for(int i=3; i<argc; i++)
     {
         if(!validateDirectory(argv[i]))
         {
@@ -432,9 +424,10 @@ int main(int argc, char **argv)
         }
         else
         {
-            if(found(waitPid, retPid, pidCount))
+            int poz = searchPid(waitPid, retPid, pidCount); // search for the pid in the array to see which process ended first
+            if(poz != -1)
             {
-                printf("Print snapshot of directory %s was successfully done - process ended.", argv[i]);
+                printf("Print snapshot of directory %s was successfully done - process pid: %d ended.\n", argv[3 + poz], waitPid);
             }
         }
     }

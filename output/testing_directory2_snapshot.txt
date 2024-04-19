@@ -1,0 +1,10 @@
+..............................
+
+ DIRECTORY: testing_directory2 
+
+*** FILE LOG *** 
+ File name: test2.txt 
+ File size: 13 
+ File type: file 
+ File id: 1 
+
