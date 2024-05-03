@@ -11,8 +11,6 @@
 #include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
-#include <aio.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 
 #define FILE_NAME_SIZE 100
@@ -30,76 +28,48 @@ typedef struct File
 
 } FileMetadata_t;  // save in a structure all the data about a file or a directory (metadata)
 
-void checkDirectory(DIR *directory) // verify the directory -> if it was properly open or can be used
+// Check if a directory is opened correctly
+void checkDirectory(DIR *directory)
 {
     if(directory == NULL)
     {
-        if(errno == ENOENT) // if opendir() returned NULL and errno was set as ENOENT => there is no such directory in the current file path
-        {
-            perror("Directory does not exist!");
-            exit(-1);
-        }
-        if(errno == ENOTDIR) // if opendir() returned an error (NULL) and errno was set as ENOTDIR => a file was selected instead of a directory
-        {
-            perror("Then name given as argument is not a directory!");
-            exit(-1);
-        }
         perror(strerror(errno));
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 }
 
-void checkFile(int f)  // verify that the file was properly opened and can be used
+// Check if a file is opened correctly
+void checkFile(int f)
 {
     if (f == -1)
     {
-        if(errno == EACCES)
-        {
-            perror("Access to file denied!");
-            exit(-1);
-        }
-        if(errno == EEXIST || errno == EFAULT)
-        {
-            perror("Path to file error!");
-            exit(-1);
-        }
         perror(strerror(errno));
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
-
 }
 
-int validateDirectory(char *name) // validates if the name/path given as argument is a directory or not
+// Validate if a directory name is valid
+int validateDirectory(char *name)
 {
     struct stat file_stat;
     if(stat(name, &file_stat) == -1)
     {
         perror(strerror(errno));
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
     return S_ISDIR(file_stat.st_mode);
 }
 
-int compareByID(const void* a, const void* b) // auxiliary function used for qsort() - sort the data by the id of the files
+// Compare two elements in the sorting function
+int compareByID(const void* a, const void* b)
 {
     const FileMetadata_t *el1 = (const FileMetadata_t *)a;
     const FileMetadata_t *el2 = (const FileMetadata_t *)b;  //  -> casting the data to FileMetadata_t
-
-    if (el1->file_id < el2->file_id)
-    {
-        return -1;
-    }
-    else if (el1->file_id > el2->file_id)
-    {
-        return 1;
-    }
-    else
-    {
-        return 0;
-    }
+    return (el1->file_id - el2->file_id);
 }
 
-void printFilesArray(FileMetadata_t *files, int count) // prints on the std output the content of the FilesArray
+// Prints on the std output the content of the FilesArray
+void printFilesArray(FileMetadata_t *files, int count)
 {
     for(int i=0; i<count; i++)
     {
@@ -108,53 +78,42 @@ void printFilesArray(FileMetadata_t *files, int count) // prints on the std outp
     printf("\n");
 }
 
-int searchPid(pid_t val, const pid_t* array, int size) // binary search for the pid val in the array
+// Binary search for the pid val in the array
+int searchPid(pid_t val, const pid_t* array, int size)
 {
     int left = 0, right = size - 1;
     while (left <= right)
     {
         int mid = left + (right - left) / 2;
 
-        if (array[mid] == val)
-            return mid;
-
-        if (array[mid] < val)
-            left = mid + 1;
-        else
-            right = mid - 1;
+        if (array[mid] == val) return mid;
+        if (array[mid] < val) left = mid + 1;
+        else right = mid - 1;
     }
     return -1;
 }
 
-FileMetadata_t addData(char *name) // uses file stat to set all the data that we need to know about a file or directory and returns the obtained data
+// Add metadata for a file
+FileMetadata_t addData(char *name)
 {
     FileMetadata_t retFile;
     struct stat file_stat;
-    if (stat(name, &file_stat) == -1) // if the file status returns an error code => stop the program, print a proper message
+    if (stat(name, &file_stat) == -1)
     {
-        if (errno == ENOENT || errno == EFAULT)
-        {
-            perror("Nonexistent directory or file");
-            exit(-1);
-        }
-        if (errno == EACCES)
-        {
-            perror("Can't access the directory/file, permission denied");
-            exit(-1);
-        }
-        perror(strerror(errno));
-        exit(-1);
+        perror("Error obtaining file metadata");
+        exit(EXIT_FAILURE);
     }
 
     retFile.file_id = file_stat.st_ino;
-    retFile.file_size = file_stat.st_size;                    // -> add data to the array
+    retFile.file_size = file_stat.st_size;
     retFile.file_type = (S_ISDIR(file_stat.st_mode) ? 0 : 1);
     retFile.file_last_modified = file_stat.st_mtime;
 
     return retFile;
 }
 
-void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName) // initialize the directory to monitor changes - read the initial information
+// Get new data for a directory
+void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName)
 {
     DIR *directory = opendir(dirName);
     checkDirectory(directory); // check that we can read the directory
@@ -170,9 +129,7 @@ void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char 
         }
 
         char path[PATH_SIZE] = "./"; // create path to directory files
-        strcat(path, dirName);
-        strcat(path, "/");
-        strcat(path, aux->d_name);
+        snprintf(path, PATH_SIZE, "%s/%s", dirName, aux->d_name);
 
         files[count] = addData(path);
         strcpy(files[count].file_name, aux->d_name);
@@ -181,7 +138,7 @@ void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char 
         // if the current file is a subdirectory - read the information about its files and directories
         if(files[count-1].file_type == 0)
         {
-            initializeDirectory(&count, files, path);// add the subdirectory files
+            getNewData(&count, files, path);// add the subdirectory files
         }
     }
     closedir(directory);
@@ -189,7 +146,8 @@ void initializeDirectory(int *returnCount, FileMetadata_t files[ARR_SIZE], char 
 }
 
 
-void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) // verify if the program was initialized before and save all the data
+// Get previous data for a directory
+void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name) // verify if the program was initialized before and save all the data
 {
     int fin = open("resource.bin", O_RDWR);// open the resource file
     checkFile(fin);
@@ -198,18 +156,8 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
 
     if(fstat(fin, &file_stat) == -1) // check if the file status was properly created
     {
-        if (errno == ENOENT || errno == EFAULT)
-        {
-            perror("Nonexistent file");
-            exit(-1);
-        }
-        if (errno == EACCES)
-        {
-            perror("Can't access the file, permission denied");
-            exit(-1);
-        }
         perror(strerror(errno));
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 
     // search for the directory name in the resource file
@@ -242,47 +190,30 @@ void emptyResourceFile(int *count, FileMetadata_t files[ARR_SIZE], char *name) /
     if(!found) // if the directory is not in the file => initialize the data about the directory
     {
         lseek(fin, 0, SEEK_END);
-        initializeDirectory(count, files, name);
+        getNewData(count, files, name);
+        long size = (sizeof(FileMetadata_t) * (*count));
 
-        if(write(fin, name, sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE)  // write the directory name
-        {
-            perror("Writing name in the file - error!");
-            exit(-1);
-        }
-
-        long size = (long) (sizeof(FileMetadata_t) * (*count));
-        if(write(fin, &size, sizeof(long)) != sizeof(long)) // write the data size
-        {
-            perror("Writing the size in the file - error!");
-            exit(-1);
-        }
-
-        if(write(fin, files, sizeof(FileMetadata_t) * (*count)) != sizeof(FileMetadata_t) * (*count)) // write all the data
-        {
-            perror("Writing data in the file - error!");
-            exit(-1);
-        }
+        if(write(fin, name, sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE ||
+           write(fin, &size, sizeof(long)) != sizeof(long) ||
+           write(fin, files, sizeof(FileMetadata_t) * (*count)) != sizeof(FileMetadata_t) * (*count))
+            {
+            perror("Error writing data to file");
+            exit(EXIT_FAILURE);
+           }
     }
-
     close(fin);
 }
 
-
-void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], char *dirName) // write a snapshot of the file list in a text file
+// Write a snapshot of the directory to a text file
+void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], char *dirName)
 {
-    int fout;
-
     char outPath[PATH_SIZE] = "./";
-    strcat(outPath, outDirName);
-    strcat(outPath, "/");
-    strcat(outPath, dirName);
-    strcat(outPath, "_snapshot.txt");
+    snprintf(outPath, PATH_SIZE, "%s/%s_snapshot.txt", outDirName, dirName);
 
     // Set the file access permissions to 0644 (read and write permissions for the owner, and read-only permissions for the group and other users)
 
-    fout = open(outPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    int fout = open(outPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     checkFile(fout);
-
 
     char dirString[BUFFER_SIZE];
     int dirStringSize = snprintf(dirString, sizeof(dirString), "..............................\n\n DIRECTORY: %s \n\n", dirName);
@@ -299,7 +230,8 @@ void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], 
     close(fout);
 }
 
-int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateFiles[ARR_SIZE], int count1, int count2) // returns 1 is there were any changes made and 0 otherwise
+// Search for modifications between two sets of metadata
+int modificationSearch(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateFiles[ARR_SIZE], int count1, int count2)
 {
     if(count1 != count2) // if the number of files are different, either one file or more were deleted, or some new files were added / created
     {
@@ -347,14 +279,15 @@ int updateSnapshot(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t updateF
     return found;
 }
 
-pid_t startChildProcess(char *dirName, char *outputDir) // starts a process that makes a snapshot about a directory
+// Start a child process that creates a snapshot for a directory
+pid_t startChildProcess(char *dirName, char *outputDir)
 {
     pid_t pid = fork();
 
     if(pid < 0)
     {
         perror(strerror(errno));
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 
     else if(pid == 0)
@@ -362,39 +295,62 @@ pid_t startChildProcess(char *dirName, char *outputDir) // starts a process that
         printf("----Child process started, number of pid: %d---- \n", getpid());
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
-        int count = 0;
-
-        emptyResourceFile(&count, initialFiles, dirName); // set the initial stats
+        int count1 = 0;
+        getLastData(&count1, initialFiles, dirName); // set the initial stats
 
         int count2 = 0;
-        initializeDirectory(&count2, updateFiles, dirName); // save the new data
+        getNewData(&count2, updateFiles, dirName); // save the new data
 
-        if (updateSnapshot(initialFiles, updateFiles, count, count2))
+        if (modificationSearch(initialFiles, updateFiles, count1, count2))
         {
             printf(" => changes found in the directory %s \n", dirName);
             printSnapshot(outputDir, count2, updateFiles, dirName);
         }
         printf(" ---end of child process pid: %d--- \n", getpid());
-        exit(0);
+        exit(EXIT_SUCCESS);
     }
 
     return pid;
-
 }
 
+// Update the resource.bin file with data for all directories - to save the changed directories
+void updateResourceFile(int argc, char **argv)
+{
+    int fout = open("resource.bin", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    checkFile(fout);
+
+    // Iterate through the command line arguments starting from index 3
+    for (int i = 3; i < argc; ++i)
+    {
+        if(validateDirectory(argv[i])) {
+            FileMetadata_t files[ARR_SIZE];
+            int count = 0;
+            getNewData(&count, files, argv[i]);
+            long size = count * sizeof(FileMetadata_t);
+            if (write(fout, argv[i], sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE ||
+                write(fout, &size, sizeof(long)) != sizeof(long) ||
+                write(fout, files, sizeof(FileMetadata_t) * count) != sizeof(FileMetadata_t) * count)
+            {
+                perror("Error writing data to file");
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+    close(fout);
+}
 
 int main(int argc, char **argv)
 {
     if(argc > 13 || argc < 4) // verify the arguments format and number
     {
         perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 
     if(strcmp(argv[1], "-o") != 0 || !validateDirectory(argv[2]))
     {
         perror("Missing the output directory argument: -o output_dir_name");
-        exit(-1);
+        exit(EXIT_FAILURE);
     }
 
     pid_t retPid[11];  // save all the process IDs that were started
@@ -431,5 +387,6 @@ int main(int argc, char **argv)
             }
         }
     }
+    updateResourceFile(argc, argv);
     return 0;
 }
