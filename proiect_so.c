@@ -1,7 +1,7 @@
 // COTOC DANIEL BENIAMIN
 // PROJECT - SO
 
-//task 4
+//task 5
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -137,9 +137,19 @@ int hasNoPermissions(const char *path) {
 // Function to analyze the file syntactically
 int analyzeFile(const char *path, const char *isolatedDir)
 {
+    int pipefd[2];
+    if (pipe(pipefd) == -1)
+    {
+        perror("Pipe failed");
+        exit(EXIT_FAILURE);
+    }
+
     pid_t pid = fork();
     if (pid == 0) // child code
     {
+        printf("----Nephew process started, number of pid: %d---- \n", getpid());
+        close(pipefd[0]);  // Close unused read end
+
         char command[BUFFER_SIZE];
         int status;
 
@@ -161,8 +171,29 @@ int analyzeFile(const char *path, const char *isolatedDir)
             perror("Error executing script: chmod 000");
         }
 
-        if(status) exit(EXIT_SUCCESS);
-        else exit(EXIT_FAILURE);
+        if (status == 0)
+        {
+            // Send the filename through the pipe
+            if (write(pipefd[1], path, sizeof(char) * 100) == -1)
+            {
+                close(pipefd[1]);
+                perror("Write failed");
+                exit(EXIT_FAILURE);
+            }
+        }
+        else
+        {
+            // Send "SAFE" through the pipe
+            if (write(pipefd[1], "SAFE", sizeof(char) * 100) == -1)
+            {
+                close(pipefd[1]);
+                perror("Write failed");
+                exit(EXIT_FAILURE);
+            }
+        }
+        close(pipefd[1]);
+        printf(" ---end of child process pid: %d--- \n", getpid());
+        exit(EXIT_SUCCESS);
     }
     else if (pid < 0)
     {
@@ -171,16 +202,27 @@ int analyzeFile(const char *path, const char *isolatedDir)
     else
     {
         // parent process
-        int status;
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+        close(pipefd[1]);  // Close unused write end
+
+        char result[BUFFER_SIZE];
+        ssize_t bytes_read = read(pipefd[0], result, sizeof(char) * 100);
+        if (bytes_read == -1)
         {
-            // Child process failed or the file is suspicious
-            isolateFile(path, isolatedDir);
+            perror("Read failed");
+            exit(EXIT_FAILURE);
+        }
+
+        // Check if the result is a filename or "SAFE"
+        if (strcmp(result, "SAFE") != 0)
+        {
+            isolateFile(result, isolatedDir);
+            close(pipefd[0]);
             return 1;
         }
+        close(pipefd[0]);
         return 0;
     }
+    return 0;
 }
 
 // Add metadata for a file
@@ -411,6 +453,7 @@ pid_t startChildProcess(char *dirName, char *outputDir, char *isolatedDir)
             printSnapshot(outputDir, count2, updateFiles, dirName);
         }
         printf(" ---end of child process pid: %d--- \n", getpid());
+
         exit(EXIT_SUCCESS);
     }
 
@@ -497,6 +540,7 @@ int main(int argc, char **argv)
             }
         }
     }
+    printf("---end of MAIN process--- \n");
     updateResourceFile(argc, argv);
     return 0;
 }
