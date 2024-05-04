@@ -17,6 +17,9 @@
 #define ARR_SIZE 200
 #define PATH_SIZE 100
 #define BUFFER_SIZE 250
+#define START_ARG_INDEX 5
+#define OUT_DIR 2
+#define SAFE_DIR 4
 
 typedef struct File
 {
@@ -49,7 +52,7 @@ void checkFile(int f)
 
 }
 
-// Validate if a directory name is valid
+// Validate if  name is directory
 int validateDirectory(char *name)
 {
     struct stat file_stat;
@@ -99,6 +102,87 @@ int searchPid(pid_t val, const pid_t* array, int size)
     return -1;
 }
 
+// Move a malicious file to the safezone
+void isolateFile(const char *path, const char *isolatedDir)
+{
+    char command[BUFFER_SIZE];
+    snprintf(command, sizeof(command), "mv %s ./%s/", path, isolatedDir);
+    if (system(command) == -1)
+    {
+        perror("Error moving file");
+    }
+}
+
+// Check if there are all te permisions missing
+int hasNoPermissions(const char *path) {
+    struct stat file_stat;
+    if (stat(path, &file_stat) == 0)
+    {
+        if ((file_stat.st_mode & S_IRUSR) ||
+            (file_stat.st_mode & S_IWUSR) ||
+            (file_stat.st_mode & S_IXUSR) ||
+            (file_stat.st_mode & S_IRGRP) ||
+            (file_stat.st_mode & S_IWGRP) ||
+            (file_stat.st_mode & S_IXGRP) ||
+            (file_stat.st_mode & S_IROTH) ||
+            (file_stat.st_mode & S_IWOTH) ||
+            (file_stat.st_mode & S_IXOTH))
+            {
+                return 0;
+            }
+    }
+    return 1;
+}
+
+// Function to analyze the file syntactically
+int analyzeFile(const char *path, const char *isolatedDir)
+{
+    pid_t pid = fork();
+    if (pid == 0) // child code
+    {
+        char command[BUFFER_SIZE];
+        int status;
+
+        snprintf(command, sizeof(command), "chmod +r %s", path);
+        if (system(command) == -1)
+        {
+            perror("Error executing script: chmod +r");
+        }
+
+        snprintf(command, sizeof(command), "./verify_for_malicious.sh %s", path);
+        if ((status = system(command)) == -1)
+        {
+            perror("Error executing script: /verify_for_malicious.sh");
+        }
+
+        snprintf(command, sizeof(command), "chmod 000 %s", path);
+        if (system(command) == -1)
+        {
+            perror("Error executing script: chmod 000");
+        }
+
+        if(status) exit(EXIT_SUCCESS);
+        else exit(EXIT_FAILURE);
+    }
+    else if (pid < 0)
+    {
+        perror("Error forking process");
+    }
+    else
+    {
+        // parent process
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+        {
+            // Child process failed or the file is suspicious
+            isolateFile(path, isolatedDir);
+            return 1;
+        }
+        return 0;
+    }
+}
+
 // Add metadata for a file
 FileMetadata_t addData(char *name)
 {
@@ -107,7 +191,8 @@ FileMetadata_t addData(char *name)
     if (stat(name, &file_stat) == -1)
     {
         perror("Error obtaining file metadata");
-        exit(EXIT_FAILURE);
+        memset(&retFile, 0, sizeof(FileMetadata_t));
+        return retFile;
     }
 
     retFile.file_id = file_stat.st_ino;
@@ -119,7 +204,7 @@ FileMetadata_t addData(char *name)
 }
 
 // Get new data for a directory
-void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName)
+void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName, char *isolatedDir)
 {
     DIR *directory = opendir(dirName);
     checkDirectory(directory); // check that we can read the directory
@@ -129,14 +214,27 @@ void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName)
     struct dirent *aux;
     while((aux = readdir(directory)) != NULL)
     {
-        if(aux->d_name[0] == '.') // skip the . - current directory and .. - parent directory links
+        // skip the . - current directory and .. - parent directory links
+        if(aux->d_name[0] == '.')
         {
             continue;
         }
 
-        char path[PATH_SIZE] = "./"; // create path to directory files
-        snprintf(path, PATH_SIZE, "%s/%s", dirName, aux->d_name);
+        // create path to directory files
+        char path[PATH_SIZE];
+        snprintf(path, PATH_SIZE, "./%s/%s", dirName, aux->d_name);
 
+        // check for malicious file
+        if(hasNoPermissions(path))
+        {
+            if(analyzeFile(path, isolatedDir))
+            {
+                continue;
+            }
+            continue;
+        }
+
+        //add metadata
         files[count] = addData(path);
         strcpy(files[count].file_name, aux->d_name);
         count++; // -> increment first so if we have a subdirectory, the count will point to the next free spot in the array (no overwriting)
@@ -144,16 +242,16 @@ void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName)
         // if the current file is a subdirectory - read the information about its files and directories
         if(files[count-1].file_type == 0)
         {
-            getNewData(&count, files, path);// add the subdirectory files
+            snprintf(path, PATH_SIZE, "%s/%s", dirName, aux->d_name);
+            getNewData(&count, files, path, isolatedDir);// add the subdirectory files
         }
     }
     closedir(directory);
     *returnCount = count;
 }
 
-
 // Get previous data for a directory
-void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name) // verify if the program was initialized before and save all the data
+void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name, char *isolatedDir) // verify if the program was initialized before and save all the data
 {
     int fin = open("resource.bin", O_RDWR);// open the resource file
     checkFile(fin);
@@ -196,7 +294,7 @@ void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name) // veri
     if(!found) // if the directory is not in the file => initialize the data about the directory
     {
         lseek(fin, 0, SEEK_END);
-        getNewData(count, files, name);
+        getNewData(count, files, name, isolatedDir);
         long size = (sizeof(FileMetadata_t) * (*count));
 
         if(write(fin, name, sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE ||
@@ -286,7 +384,7 @@ int modificationSearch(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t upd
 }
 
 // Start a child process that creates a snapshot for a directory
-pid_t startChildProcess(char *dirName, char *outputDir)
+pid_t startChildProcess(char *dirName, char *outputDir, char *isolatedDir)
 {
     pid_t pid = fork();
 
@@ -302,10 +400,10 @@ pid_t startChildProcess(char *dirName, char *outputDir)
         FileMetadata_t initialFiles[ARR_SIZE], updateFiles[ARR_SIZE];
 
         int count1 = 0;
-        getLastData(&count1, initialFiles, dirName); // set the initial stats
+        getLastData(&count1, initialFiles, dirName, isolatedDir); // set the initial stats
 
         int count2 = 0;
-        getNewData(&count2, updateFiles, dirName); // save the new data
+        getNewData(&count2, updateFiles, dirName, isolatedDir); // save the new data
 
         if (modificationSearch(initialFiles, updateFiles, count1, count2))
         {
@@ -326,12 +424,12 @@ void updateResourceFile(int argc, char **argv)
     checkFile(fout);
 
     // Iterate through the command line arguments starting from index 3
-    for (int i = 3; i < argc; ++i)
+    for (int i = START_ARG_INDEX; i < argc; ++i)
     {
         if(validateDirectory(argv[i])) {
             FileMetadata_t files[ARR_SIZE];
             int count = 0;
-            getNewData(&count, files, argv[i]);
+            getNewData(&count, files, argv[i], argv[4]);
             long size = count * sizeof(FileMetadata_t);
             if (write(fout, argv[i], sizeof(char) * FILE_NAME_SIZE) != sizeof(char) * FILE_NAME_SIZE ||
                 write(fout, &size, sizeof(long)) != sizeof(long) ||
@@ -347,32 +445,38 @@ void updateResourceFile(int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    if(argc > 13 || argc < 4) // verify the arguments format and number
+    if(argc > 15) // verify the arguments format and number
     {
         perror("The arguments provided in the command line do not meet the requirements OR there are too many arguments!");
         exit(EXIT_FAILURE);
     }
 
-    if(strcmp(argv[1], "-o") != 0 || !validateDirectory(argv[2]))
+    if(strcmp(argv[OUT_DIR - 1], "-o") != 0 || !validateDirectory(argv[OUT_DIR]))
     {
         perror("Missing the output directory argument: -o output_dir_name");
+        exit(EXIT_FAILURE);
+    }
+
+    if(strcmp(argv[SAFE_DIR - 1], "-s") != 0 || !validateDirectory(argv[SAFE_DIR]))
+    {
+        perror("Missing the safezone directory argument: -s safezone_dir_name");
         exit(EXIT_FAILURE);
     }
 
     pid_t retPid[11];  // save all the process IDs that were started
     int pidCount = 0;
 
-    for (int i = 3; i < argc; ++i) // for each directory given as argument -> start a new process and run the child code
+    for (int i = START_ARG_INDEX; i < argc; ++i) // for each directory given as argument -> start a new process and run the child code
     {
         if(!validateDirectory(argv[i]))
         {
             continue;
         }
-        retPid[pidCount] = startChildProcess(argv[i], argv[2]); // -> parallelism = starting all the processes and wait for the one that comes first
+        retPid[pidCount] = startChildProcess(argv[i], argv[OUT_DIR], argv[SAFE_DIR]); // -> parallelism = starting all the processes and wait for the one that comes first
         pidCount++;
     }
 
-    for(int i=3; i<argc; i++)
+    for(int i=START_ARG_INDEX; i<argc; i++)
     {
         if(!validateDirectory(argv[i]))
         {
@@ -389,7 +493,7 @@ int main(int argc, char **argv)
             int poz = searchPid(waitPid, retPid, pidCount); // search for the pid in the array to see which process ended first
             if(poz != -1)
             {
-                printf("Print snapshot of directory %s was successfully done - process pid: %d ended.\n", argv[3 + poz], waitPid);
+                printf("Print snapshot of directory %s was successfully done - process pid: %d ended.\n", argv[START_ARG_INDEX + poz], waitPid);
             }
         }
     }
