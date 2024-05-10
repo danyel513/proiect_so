@@ -1,0 +1,33 @@
+
+ DIRECTORY: testing_directory 
+
+*** FILE LOG *** 
+ File name: r.txt 
+ File size: 130 
+ File type: file 
+ File id: 524712 
+
+*** FILE LOG *** 
+ File name: file2.txt 
+ File size: 75 
+ File type: file 
+ File id: 524732 
+
+*** FILE LOG *** 
+ File name: fileOK_subdir.txt 
+ File size: 0 
+ File type: file 
+ File id: 524735 
+
+*** FILE LOG *** 
+ File name: file1.txt 
+ File size: 828 
+ File type: file 
+ File id: 524740 
+
+*** FILE LOG *** 
+ File name: subdir 
+ File size: 4096 
+ File type: directory 
+ File id: 535006 
+

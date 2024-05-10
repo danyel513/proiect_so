@@ -1,1 +1,2 @@
-aaaaaaaaa
+Acest fisier este destinat testarii. El contine cuvantul corrupt dar nu este mutat.
+Acest fisier a fost modificat? DA BINEINTELES

@@ -23,11 +23,11 @@
 
 typedef struct File
 {
-    int file_type;
-    char file_name[FILE_NAME_SIZE];
-    long file_id;
-    long file_size;
-    time_t file_last_modified;
+    int file_type; // 0 = subdirectory and 1 = file
+    char file_name[FILE_NAME_SIZE]; // the name of the file or subdir
+    long file_id; // the inode number
+    long file_size; // size in bytes
+    time_t file_last_modified; // last modified timestamp
 
 } FileMetadata_t;  // save in a structure all the data about a file or a directory (metadata)
 
@@ -49,10 +49,9 @@ void checkFile(int f)
         perror(strerror(errno));
         exit(EXIT_FAILURE);
     }
-
 }
 
-// Validate if  name is directory
+// Validate if name is directory
 int validateDirectory(char *name)
 {
     struct stat file_stat;
@@ -103,13 +102,14 @@ int searchPid(pid_t val, const pid_t* array, int size)
 }
 
 // Move a malicious file to the safezone
-void isolateFile(const char *path, const char *isolatedDir)
+void isolateFile(const char *path_to_file, const char *destination_folder)
 {
-    char command[BUFFER_SIZE];
-    snprintf(command, sizeof(command), "mv %s ./%s/", path, isolatedDir);
-    if (system(command) == -1)
+    char new_path[PATH_SIZE];
+    char *file_name = strrchr(path_to_file, '/');
+    snprintf(new_path, sizeof(new_path), "./%s/%s", destination_folder, file_name);
+    if (rename(path_to_file, new_path) != 0)
     {
-        perror("Error moving file");
+        perror(strerror(errno));
     }
 }
 
@@ -140,7 +140,7 @@ int analyzeFile(const char *path, const char *isolatedDir)
     int pipefd[2];
     if (pipe(pipefd) == -1)
     {
-        perror("Pipe failed");
+        perror(strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -153,22 +153,21 @@ int analyzeFile(const char *path, const char *isolatedDir)
         char command[BUFFER_SIZE];
         int status;
 
-        snprintf(command, sizeof(command), "chmod +r %s", path);
-        if (system(command) == -1)
+        if (chmod(path, S_IRUSR | S_IRGRP | S_IROTH) == -1)
         {
-            perror("Error executing script: chmod +r");
+            perror(strerror(errno));
         }
 
         snprintf(command, sizeof(command), "./verify_for_malicious.sh %s", path);
         if ((status = system(command)) == -1)
         {
             perror("Error executing script: /verify_for_malicious.sh");
+            exit(EXIT_FAILURE);
         }
 
-        snprintf(command, sizeof(command), "chmod 000 %s", path);
-        if (system(command) == -1)
+        if (chmod(path, 0) == -1)
         {
-            perror("Error executing script: chmod 000");
+            perror(strerror(errno));
         }
 
         if (status == 0)
@@ -177,7 +176,7 @@ int analyzeFile(const char *path, const char *isolatedDir)
             if (write(pipefd[1], path, sizeof(char) * 100) == -1)
             {
                 close(pipefd[1]);
-                perror("Write failed");
+                perror("Error: writing the pipe failed");
                 exit(EXIT_FAILURE);
             }
         }
@@ -192,17 +191,18 @@ int analyzeFile(const char *path, const char *isolatedDir)
             }
         }
         close(pipefd[1]);
-        printf(" ---end of child process pid: %d--- \n", getpid());
         exit(EXIT_SUCCESS);
     }
     else if (pid < 0)
     {
-        perror("Error forking process");
+        perror(strerror(errno));
     }
     else
     {
         // parent process
         close(pipefd[1]);  // Close unused write end
+        pid_t waitPid = wait(NULL);
+        printf(" ---end of nephew process pid: %d--- \n", waitPid);
 
         char result[BUFFER_SIZE];
         ssize_t bytes_read = read(pipefd[0], result, sizeof(char) * 100);
@@ -233,7 +233,7 @@ FileMetadata_t addData(char *name)
     if (stat(name, &file_stat) == -1)
     {
         perror("Error obtaining file metadata");
-        memset(&retFile, 0, sizeof(FileMetadata_t));
+        memset(&retFile, 0, sizeof(FileMetadata_t)); // return a vid file data
         return retFile;
     }
 
@@ -273,7 +273,6 @@ void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName,
             {
                 continue;
             }
-            continue;
         }
 
         //add metadata
@@ -293,7 +292,7 @@ void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName,
 }
 
 // Get previous data for a directory
-void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name, char *isolatedDir) // verify if the program was initialized before and save all the data
+void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name, char *isolatedDir)
 {
     int fin = open("resource.bin", O_RDWR);// open the resource file
     checkFile(fin);
@@ -362,7 +361,7 @@ void printSnapshot(char *outDirName, int count, FileMetadata_t files[ARR_SIZE], 
     checkFile(fout);
 
     char dirString[BUFFER_SIZE];
-    int dirStringSize = snprintf(dirString, sizeof(dirString), "..............................\n\n DIRECTORY: %s \n\n", dirName);
+    int dirStringSize = snprintf(dirString, sizeof(dirString), "\n DIRECTORY: %s \n\n", dirName);
     write(fout, dirString, dirStringSize);
 
     // Iterate through the file list and write the details to the snapshot file
@@ -411,7 +410,7 @@ int modificationSearch(FileMetadata_t initialFiles[ARR_SIZE], FileMetadata_t upd
                 printf(" Size modified for %s from %ld to %ld. ", updateFiles[i].file_name, initialFiles[i].file_size, updateFiles[i].file_size);
                 found = 1;
             }
-            if(initialFiles[i].file_last_modified != updateFiles[i].file_last_modified)
+            if(initialFiles[i].file_last_modified != updateFiles[i].file_last_modified && initialFiles[i].file_type == 1)
             {
                 printf(" File %s modified.", updateFiles[i].file_name);
                 found = 1;
@@ -452,7 +451,6 @@ pid_t startChildProcess(char *dirName, char *outputDir, char *isolatedDir)
             printf(" => changes found in the directory %s \n", dirName);
             printSnapshot(outputDir, count2, updateFiles, dirName);
         }
-        printf(" ---end of child process pid: %d--- \n", getpid());
 
         exit(EXIT_SUCCESS);
     }
@@ -536,11 +534,11 @@ int main(int argc, char **argv)
             int poz = searchPid(waitPid, retPid, pidCount); // search for the pid in the array to see which process ended first
             if(poz != -1)
             {
-                printf("Print snapshot of directory %s was successfully done - process pid: %d ended.\n", argv[START_ARG_INDEX + poz], waitPid);
+                printf("Process started for directory %s was successfully done - process pid: %d ended.\n", argv[START_ARG_INDEX + poz], waitPid);
             }
         }
     }
-    printf("---end of MAIN process--- \n");
     updateResourceFile(argc, argv);
+    printf("---end of MAIN process--- \n");
     return 0;
 }

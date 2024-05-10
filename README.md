@@ -1,44 +1,30 @@
-# Task 4: 
-File Analysis and Isolation
+# TASK 5
 
-# Objective:
+## File Corruption Detection Script
 
-Identify and isolate potentially dangerous or corrupted files within a specified directory to enhance system security.
+A corrupted file may contain a sequence of characters without adhering to a specific line structure. Additionally, the number of so-called words may be reduced since this sequence of characters can be fragmented unexpectedly. To evaluate the nature of file corruption, the script will count the number of lines, words, and characters it contains. This aspect can serve as a relevant filter for identifying a potentially dangerous file.
 
-# Description:
+For file evaluation, the following criteria will be applied to the script designed for syntax analysis:
 
-This task focuses on implementing a file analysis and isolation mechanism to mitigate security risks posed by malicious or corrupted files. Attackers often exploit vulnerabilities by injecting harmful content into files, necessitating proactive measures to detect and neutralize such threats.
+- **Number of lines, words, and characters:** Limits will be established for each of these aspects.
+- **Verification of the number of lines and words:** If the file contains fewer than 3 lines and the number of words exceeds 1000 and the number of characters exceeds 2000, it will be considered suspicious.
+- **Checking for non-ASCII characters and keywords:** In the case of suspicious behavior, it will be examined whether the character sequence also contains non-ASCII characters or keywords associated with dangerous files ("corrupted", "dangerous", "risk", "attack", "malware", "malicious").
 
-# Implementation Steps:
+## Classification and Display
 
-Rights Checking:
+If dangerous characteristics are detected, the file will be classified as dangerous, and the script will display only its name on stdout. Otherwise, the script will print "SAFE" to stdout.
 
-Verify file permissions to identify files lacking necessary access rights.
-Create a dedicated process to perform syntactic analysis using a script (e.g., verify_for_malicious.sh) to detect corruption or malicious intent.
-Isolate suspicious files in a separate, secure environment upon confirmation of potential threats.
+## Implementation
 
-File Syntactic Analysis:
+This week, we continue analyzing files in the directory provided as an argument to identify and isolate potentially dangerous or corrupted files. Each suspected file will be subjected to a verification by executing the dedicated script. The script will provide relevant information about the file via stdout.
 
-Conduct syntactic analysis of file contents to detect signs of maliciousness or corruption.
-Check line, word, and character counts within files.
-Search for keywords associated with corrupt or malicious files, such as "corrupt," "dangerous," "risk," "attack," "malware," "malicious," or non-ASCII characters.
-If any indicators are found, classify the file as dangerous and proceed with isolation.
+The child process that executes the script will communicate with the parent process through a pipe, transmitting information such as the file name if it is dangerous or the word "SAFE" otherwise. The parent process will retrieve this information and subsequently decide on moving the file to the isolated directory based on the obtained results. Note: if the logic for moving to the isolated directory has been previously executed through different methods, this time only the process receiving the file name through the pipe will perform this move.
 
-Isolation of Dangerous Files:
+Multiple corrupted files may be encountered in the same directory. Thus, we will need pipes to communicate information about these corrupted files between child and parent processes. Each corrupted file will undergo the same verification and script execution procedure as in the previous week, and the resulting information will be transmitted via pipe to the creating process. The creating process will retrieve this information and decide how to handle each corrupted file accordingly, including moving them to the isolated directory.
 
-Move identified dangerous files to a designated directory specified as an argument in the command line, named "isolated_space_dir."
-Prevent potential threats from affecting the system by isolating suspicious files.
-Enable further investigation of isolated files to assess the extent of potential damage.
+# Process Overview
 
-Program Invocation:
-
-bash
-/program_exe output_directory isolated_space_dir dir1 dir2 dir3
-
-Additional Information:
-
-Introduce a new flag, "-s" (for safe), in the command line before the "isolated_space_dir" argument to signify the directory for isolating potentially dangerous files.
-No dedicated snapshot is required for the isolation directory.
-
- # Outcome:
-By implementing this task, we aim to enhance system security by proactively identifying and isolating potentially harmful files, thereby safeguarding critical data and infrastructure against security threats.
+1. Identify and isolate potentially dangerous or corrupted files.
+2. Execute a script to verify the files' integrity.
+3. Communicate results between child and parent processes using pipes.
+4. Move files to an isolated directory based on verification results.

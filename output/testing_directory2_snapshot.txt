@@ -1,0 +1,15 @@
+
+ DIRECTORY: testing_directory2 
+
+*** FILE LOG *** 
+ File name: fileok_test2.txt 
+ File size: 0 
+ File type: file 
+ File id: 656458 
+
+*** FILE LOG *** 
+ File name: regularfile.txt 
+ File size: 47 
+ File type: file 
+ File id: 658414 
+
