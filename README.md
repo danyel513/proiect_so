@@ -11,8 +11,11 @@ Weekly tasks:
 
 # TASK 1: 
 
-The user will be able to specify the monitoring directory as a command-line argument, and the program will track changes occurring in it and its subdirectories.
-Each time the program is run, it will update the snapshot of the directory, storing the metadata of each entry.
+To start, the first step is to create a program that takes a directory as a command-line argument and monitors it for changes. Here, we can utilize functions in the C language for working with directories and files, such as opendir, readdir, stat, to obtain information about each item in the directory and store it in a snapshot.
+
+To create a snapshot, the program should store metadata for each directory item, such as its name, size, type, and other relevant attributes. This information is then saved in a file or data structure to be used later for comparison.
+
+In each run of the program, it will update the directory snapshot by comparing the current metadata with the previously stored data. If changes are detected, the program can display a list of modified items or directly update the snapshot with the new information.
 
 # TASK 2:
 
@@ -31,7 +34,10 @@ For example, the command to run the program will be: ./program_exe -o output inp
 
 Utilize a system call to create a new process for each parsed directory. Develop logic within each child process to create snapshots for the assigned directory. ALL CREATED PROCESSES SHOULD RUN IN PARALLEL. At the end of each child process, the parent will retrieve its status and display a message in the form of:
 
-The process with PID has ended with code where represents the PID of the terminated child process, and represents the exit code with which it terminated. Example of how the program should work: ./program_exe -o output_dir dir1 dir2 dir3
+The process with PID has ended with code where represents the PID of the terminated child process, and represents the exit code with which it terminated. 
+
+## Example of how the program should work: 
+./program_exe -o output_dir dir1 dir2 dir3
 
 Assuming the program prints a message after each snapshot creation process is completed, the output might look something like this:
 
@@ -44,7 +50,7 @@ Child Process 1 terminated with PID 123 and exit code 0. Child Process 2 termina
 Identify and isolate potentially dangerous or corrupted files within a specified directory to enhance system security.
 This task focuses on implementing a file analysis and isolation mechanism to mitigate security risks posed by malicious or corrupted files. Attackers often exploit vulnerabilities by injecting harmful content into files, necessitating proactive measures to detect and neutralize such threats.
 
-# TASK 5
+# TASK 5:
 
 ## File Corruption Detection Script
 
