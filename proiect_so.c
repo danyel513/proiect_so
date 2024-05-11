@@ -32,7 +32,7 @@ typedef struct File
 } FileMetadata_t;  // save in a structure all the data about a file or a directory (metadata)
 
 // Check if a directory is opened correctly
-void checkDirectory(DIR *directory)
+void checkDirectory(const DIR *directory)
 {
     if(directory == NULL)
     {
@@ -42,7 +42,7 @@ void checkDirectory(DIR *directory)
 }
 
 // Check if a file is opened correctly
-void checkFile(int f)
+void checkFile(const int f)
 {
     if (f == -1)
     {
@@ -52,18 +52,18 @@ void checkFile(int f)
 }
 
 // Validate if name is directory
-int validateDirectory(char *name)
+int validateDirectory(const char *name)
 {
     struct stat file_stat;
     if(stat(name, &file_stat) == -1)
     {
         perror(strerror(errno));
-        exit(EXIT_FAILURE);
+        return 0;
     }
     return S_ISDIR(file_stat.st_mode);
 }
 
-// Compare two elements in the sorting function
+// Compare two elements (auxiliar for the qsort function)
 int compareByID(const void* a, const void* b)
 {
     const FileMetadata_t *el1 = (const FileMetadata_t *)a;
@@ -73,7 +73,7 @@ int compareByID(const void* a, const void* b)
 }
 
 // Prints on the std output the content of the FilesArray
-void printFilesArray(FileMetadata_t *files, int count)
+void printFilesArray(FileMetadata_t *files, const int count)
 {
     for(int i=0; i<count; i++)
     {
@@ -114,7 +114,8 @@ void isolateFile(const char *path_to_file, const char *destination_folder)
 }
 
 // Check if there are all te permisions missing
-int hasNoPermissions(const char *path) {
+int hasNoPermissions(const char *path)
+{
     struct stat file_stat;
     if (stat(path, &file_stat) == 0)
     {
@@ -153,19 +154,19 @@ int analyzeFile(const char *path, const char *isolatedDir)
         char command[BUFFER_SIZE];
         int status;
 
-        if (chmod(path, S_IRUSR | S_IRGRP | S_IROTH) == -1)
+        if (chmod(path, S_IRUSR | S_IRGRP | S_IROTH) == -1) // give reading permisions
         {
             perror(strerror(errno));
         }
 
         snprintf(command, sizeof(command), "./verify_for_malicious.sh %s", path);
-        if ((status = system(command)) == -1)
+        if ((status = system(command)) == -1) // run the script and save the exit status
         {
             perror("Error executing script: /verify_for_malicious.sh");
             exit(EXIT_FAILURE);
         }
 
-        if (chmod(path, 0) == -1)
+        if (chmod(path, 0) == -1) // eliminate the permisions
         {
             perror(strerror(errno));
         }
@@ -226,7 +227,7 @@ int analyzeFile(const char *path, const char *isolatedDir)
 }
 
 // Add metadata for a file
-FileMetadata_t addData(char *name)
+FileMetadata_t addData(const char *name)
 {
     FileMetadata_t retFile;
     struct stat file_stat;
@@ -267,12 +268,9 @@ void getNewData(int *returnCount, FileMetadata_t files[ARR_SIZE], char *dirName,
         snprintf(path, PATH_SIZE, "./%s/%s", dirName, aux->d_name);
 
         // check for malicious file
-        if(hasNoPermissions(path))
+        if(hasNoPermissions(path) && analyzeFile(path, isolatedDir))
         {
-            if(analyzeFile(path, isolatedDir))
-            {
-                continue;
-            }
+            continue;
         }
 
         //add metadata
@@ -306,7 +304,6 @@ void getLastData(int *count, FileMetadata_t files[ARR_SIZE], char *name, char *i
     }
 
     // search for the directory name in the resource file
-
     lseek(fin, 0, SEEK_SET); // set the file cursor at the beginning of the file
     long i = 0;
     int found = 0;
